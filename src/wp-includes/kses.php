@@ -1183,7 +1183,7 @@ function wp_kses_attr( $element, $attr, $allowed_html, $allowed_protocols ) {
 	// Check if there are attributes that are required.
 	$required_attrs = array_filter(
 		$allowed_html[ $element_low ],
-		static function( $required_attr_limits ) {
+		static function ( $required_attr_limits ) {
 			return isset( $required_attr_limits['required'] ) && true === $required_attr_limits['required'];
 		}
 	);
@@ -1263,11 +1263,10 @@ function wp_kses_attr_check( &$name, &$value, &$whole, $vless, $element, $allowe
 		 * `data-*` (not to be mixed with the HTML 4.0 `data` attribute, see
 		 * https://www.w3.org/TR/html40/struct/objects.html#adef-data).
 		 *
-		 * Note: the attribute name should only contain `A-Za-z0-9_-` chars,
-		 * double hyphens `--` are not accepted by WordPress.
+		 * Note: the attribute name should only contain `A-Za-z0-9_-` chars.
 		 */
 		if ( str_starts_with( $name_low, 'data-' ) && ! empty( $allowed_attr['data-*'] )
-			&& preg_match( '/^data(?:-[a-z0-9_]+)+$/', $name_low, $match )
+			&& preg_match( '/^data-[a-z0-9_-]+$/', $name_low, $match )
 		) {
 			/*
 			 * Add the whole attribute name to the allowed attributes and set any restrictions
@@ -1536,36 +1535,37 @@ function wp_kses_hair_parse( $attr ) {
 		return array();
 	}
 
-	// phpcs:disable Squiz.Strings.ConcatenationSpacing.PaddingFound -- don't remove regex indentation
 	$regex =
-		'(?:'
-		.     '[_a-zA-Z][-_a-zA-Z0-9:.]*' // Attribute name.
-		. '|'
-		.     '\[\[?[^\[\]]+\]\]?'        // Shortcode in the name position implies unfiltered_html.
-		. ')'
-		. '(?:'               // Attribute value.
-		.     '\s*=\s*'       // All values begin with '='.
-		.     '(?:'
-		.         '"[^"]*"'   // Double-quoted.
-		.     '|'
-		.         "'[^']*'"   // Single-quoted.
-		.     '|'
-		.         '[^\s"\']+' // Non-quoted.
-		.         '(?:\s|$)'  // Must have a space.
-		.     ')'
-		. '|'
-		.     '(?:\s|$)'      // If attribute has no value, space is required.
-		. ')'
-		. '\s*';              // Trailing space is optional except as mentioned above.
-	// phpcs:enable
+		'(?:
+				[_a-zA-Z][-_a-zA-Z0-9:.]* # Attribute name.
+			|
+				\[\[?[^\[\]]+\]\]?        # Shortcode in the name position implies unfiltered_html.
+		)
+		(?:                               # Attribute value.
+			\s*=\s*                       # All values begin with "=".
+			(?:
+				"[^"]*"                   # Double-quoted.
+			|
+				\'[^\']*\'                # Single-quoted.
+			|
+				[^\s"\']+                 # Non-quoted.
+				(?:\s|$)                  # Must have a space.
+			)
+		|
+			(?:\s|$)                      # If attribute has no value, space is required.
+		)
+		\s*                               # Trailing space is optional except as mentioned above.
+		';
 
 	/*
 	 * Although it is possible to reduce this procedure to a single regexp,
 	 * we must run that regexp twice to get exactly the expected result.
+	 *
+	 * Note: do NOT remove the `x` modifiers as they are essential for the above regex!
 	 */
 
-	$validation = "%^($regex)+$%";
-	$extraction = "%$regex%";
+	$validation = "/^($regex)+$/x";
+	$extraction = "/$regex/x";
 
 	if ( 1 === preg_match( $validation, $attr ) ) {
 		preg_match_all( $extraction, $attr, $attrarr );
@@ -2146,7 +2146,7 @@ function wp_filter_global_styles_post( $data ) {
 	) {
 		unset( $decoded_data['isGlobalStylesUserThemeJSON'] );
 
-		$data_to_encode = WP_Theme_JSON::remove_insecure_properties( $decoded_data );
+		$data_to_encode = WP_Theme_JSON::remove_insecure_properties( $decoded_data, 'custom' );
 
 		$data_to_encode['isGlobalStylesUserThemeJSON'] = true;
 		return wp_slash( wp_json_encode( $data_to_encode ) );
@@ -2301,6 +2301,9 @@ function kses_init() {
  *              and `z-index` CSS properties.
  * @since 6.3.0 Extended support for `filter` to accept a URL and added support for repeat().
  *              Added support for `box-shadow`.
+ * @since 6.4.0 Added support for `writing-mode`.
+ * @since 6.5.0 Added support for `background-repeat`.
+ * @since 6.6.0 Added support for `grid-column`, `grid-row`, and `container-type`.
  *
  * @param string $css        A string of CSS rules.
  * @param string $deprecated Not used.
@@ -2332,6 +2335,7 @@ function safecss_filter_attr( $css, $deprecated = '' ) {
 			'background-color',
 			'background-image',
 			'background-position',
+			'background-repeat',
 			'background-size',
 			'background-attachment',
 			'background-blend-mode',
@@ -2437,11 +2441,13 @@ function safecss_filter_attr( $css, $deprecated = '' ) {
 			'grid-auto-columns',
 			'grid-column-start',
 			'grid-column-end',
+			'grid-column',
 			'grid-column-gap',
 			'grid-template-rows',
 			'grid-auto-rows',
 			'grid-row-start',
 			'grid-row-end',
+			'grid-row',
 			'grid-row-gap',
 			'grid-gap',
 
@@ -2461,6 +2467,7 @@ function safecss_filter_attr( $css, $deprecated = '' ) {
 			'object-position',
 			'overflow',
 			'vertical-align',
+			'writing-mode',
 
 			'position',
 			'top',
@@ -2470,6 +2477,7 @@ function safecss_filter_attr( $css, $deprecated = '' ) {
 			'z-index',
 			'box-shadow',
 			'aspect-ratio',
+			'container-type',
 
 			// Custom CSS properties.
 			'--*',
@@ -2631,6 +2639,7 @@ function safecss_filter_attr( $css, $deprecated = '' ) {
  * @since 5.0.0 Added support for `data-*` wildcard attributes.
  * @since 6.0.0 Added `dir`, `lang`, and `xml:lang` to global attributes.
  * @since 6.3.0 Added `aria-controls`, `aria-current`, and `aria-expanded` attributes.
+ * @since 6.4.0 Added `aria-live` and `hidden` attributes.
  *
  * @access private
  * @ignore
@@ -2645,12 +2654,14 @@ function _wp_add_global_attributes( $value ) {
 		'aria-describedby' => true,
 		'aria-details'     => true,
 		'aria-expanded'    => true,
+		'aria-hidden'      => true,
 		'aria-label'       => true,
 		'aria-labelledby'  => true,
-		'aria-hidden'      => true,
+		'aria-live'        => true,
 		'class'            => true,
 		'data-*'           => true,
 		'dir'              => true,
+		'hidden'           => true,
 		'id'               => true,
 		'lang'             => true,
 		'style'            => true,
